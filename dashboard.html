@@ -529,6 +529,10 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
         <div class="fbar">
           <button class="fb active" data-f="all">All</button>
           <button class="fb" data-f="valid">Valid</button>
+          <button class="fb" data-f="hits">Hits</button>
+          <button class="fb" data-f="free">Free</button>
+          <button class="fb" data-f="monthly">Monthly</button>
+          <button class="fb" data-f="yearly">Yearly</button>
           <button class="fb" data-f="invalid">Invalid</button>
           <button class="fb" data-f="cloudflare_blocked">CF Block</button>
           <button class="fb" data-f="error">Error</button>
@@ -799,6 +803,8 @@ function renderTable(){
   var tb=ge('res-body'),rows=allResults.slice();
   if(curFilter==='hits')      rows=rows.filter(function(r){return r.status==='valid'&&r.active_sub;});
   else if(curFilter==='free') rows=rows.filter(function(r){return r.status==='valid'&&!r.active_sub;});
+  else if(curFilter==='monthly') rows=rows.filter(function(r){return billLabel(r)==='Monthly';});
+  else if(curFilter==='yearly')  rows=rows.filter(function(r){return billLabel(r)==='Yearly';});
   else if(curFilter!=='all')  rows=rows.filter(function(r){return r.status===curFilter;});
   if(searchQ)rows=rows.filter(function(r){return (r.email||'').toLowerCase().indexOf(searchQ)>-1||(r.tier_display||'').toLowerCase().indexOf(searchQ)>-1||(r.source_file||'').toLowerCase().indexOf(searchQ)>-1||(r.user_id||'').toLowerCase().indexOf(searchQ)>-1;});
   if(!rows.length){tb.innerHTML='<tr><td colspan="8"><div class="empty"><div class="eic">📭</div><div class="etx">No results'+(curFilter!=='all'?' for: '+curFilter:'')+'</div></div></td></tr>';return;}

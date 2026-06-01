@@ -60,10 +60,46 @@ CHALLENGE_MARKERS = [
 ]
 
 # Subscription states that count as a genuinely active paid subscription.
+# Status tokens (compared after stripping any "SUBSCRIPTION_STATUS_" / "STATUS_"
+# prefix, lower-casing, and normalising separators). xAI returns enum-style
+# values like "SUBSCRIPTION_STATUS_ACTIVE" / "SUBSCRIPTION_STATUS_INACTIVE".
 ACTIVE_STATES = {
-    "active", "trialing", "in_trial", "active_trial",
-    "grace", "grace_period", "on_grace_period", "paused_active",
+    "active", "trialing", "trial", "in_trial", "active_trial", "on_trial",
+    "grace", "grace_period", "on_grace_period", "in_grace_period", "paused_active",
 }
+INACTIVE_STATES = {
+    "inactive", "canceled", "cancelled", "expired", "ended", "paused",
+    "past_due", "unpaid", "incomplete", "incomplete_expired", "revoked",
+    "suspended", "deleted", "refunded", "on_hold",
+}
+
+
+def _norm_status(raw: Optional[str]) -> str:
+    """Lower-case a status and strip the xAI enum prefix so e.g.
+    'SUBSCRIPTION_STATUS_ACTIVE' -> 'active', 'SUBSCRIPTION_STATUS_INACTIVE'
+    -> 'inactive'."""
+    s = (raw or "").strip().lower()
+    if not s:
+        return ""
+    for pre in ("subscription_status_", "subscription_state_", "sub_status_",
+                "status_", "state_"):
+        if s.startswith(pre):
+            s = s[len(pre):]
+            break
+    return s.strip("_ ").replace("-", "_").replace(" ", "_")
+
+
+def _status_is_active(raw: Optional[str]) -> Optional[bool]:
+    """True / False if the status is clearly active / inactive, else None
+    (unknown — let the caller fall back to the billing-period-end check)."""
+    s = _norm_status(raw)
+    if not s:
+        return None
+    if s in INACTIVE_STATES or s.startswith("inactive"):
+        return False
+    if s in ACTIVE_STATES or s.startswith("active") or s.startswith("trial"):
+        return True
+    return None
 
 # Field key -> label used in exported .txt files (order matters).
 EXPORT_FIELD_LABELS: List[Tuple[str, str]] = [
@@ -125,7 +161,13 @@ class ValidationResult:
         t = normalize_tier_name(self.tier)
         if t == "free":
             return "Free"
-        return (self.tier or t).replace("_", " ").title()
+        raw = self.tier or t
+        # Display-only cleanup of xAI enum names (folders keep the raw name).
+        for pre in ("SUBSCRIPTION_TIER_", "subscription_tier_", "TIER_", "tier_"):
+            if raw.startswith(pre):
+                raw = raw[len(pre):]
+                break
+        return raw.replace("_", " ").title()
 
     def _is_active(self) -> bool:
         return is_active_subscription({
@@ -241,33 +283,73 @@ def first_non_empty(*values: Any) -> Optional[str]:
 
 # ─── Subscription Logic ───────────────────────────────────────────────────────
 
+def _block_fields(sub: dict) -> Dict[str, Optional[str]]:
+    """Pull normalised fields out of a single subscription block. Values can
+    live at the top level or nested under a 'stripe' / 'google' object."""
+    google = sub.get("google") if isinstance(sub.get("google"), dict) else {}
+    stripe = sub.get("stripe") if isinstance(sub.get("stripe"), dict) else {}
+    return {
+        "tier":                first_non_empty(sub.get("tier")),
+        "billing_interval":    first_non_empty(
+            sub.get("billingInterval"), stripe.get("subscriptionType"),
+            google.get("billingInterval")),
+        "subscription_status": first_non_empty(sub.get("status")),
+        "billing_period_end":  first_non_empty(
+            sub.get("billingPeriodEnd"), sub.get("expiryTime"),
+            stripe.get("currentPeriodEnd"), google.get("expiryTime")),
+        "base_plan_id":   first_non_empty(sub.get("basePlanId"),    google.get("basePlanId")),
+        "product_id":     first_non_empty(sub.get("productId"),     stripe.get("productId"),
+                                          google.get("productId")),
+        "purchase_token": first_non_empty(sub.get("purchaseToken"), google.get("purchaseToken")),
+        "user_id":        first_non_empty(sub.get("xaiUserId"),     sub.get("userId")),
+    }
+
+
 def parse_subscriptions_payload(data: Any) -> Dict[str, Optional[str]]:
-    items = []
+    """Scan the FULL subscription history and report the most relevant block.
+
+    A user's history can hold many past subscriptions plus (sometimes) one
+    active one — and the active block is not always first. So we look at every
+    block: if any is active (non-free tier + active status, or a future billing
+    period when the status is unknown) we report the active one with the
+    furthest-future period end. Otherwise we report the most recent block so the
+    tier/status still surface, and classification falls back to free."""
+    items: List[Any] = []
     if isinstance(data, dict):
         if isinstance(data.get("subscriptions"), list):
             items = data["subscriptions"]
         elif isinstance(data.get("subscription"), dict):
             items = [data["subscription"]]
-        elif all(k in data for k in ["tier", "status"]):
+        elif isinstance(data.get("subscription"), list):
+            items = data["subscription"]
+        elif any(k in data for k in ("tier", "status", "google", "stripe")):
             items = [data]
     elif isinstance(data, list):
         items = data
-    if not items:
+
+    blocks = [_block_fields(s) for s in items if isinstance(s, dict)]
+    blocks = [b for b in blocks if any(v for v in b.values())]
+    if not blocks:
         return {}
-    sub    = items[0] if isinstance(items[0], dict) else {}
-    google = sub.get("google") if isinstance(sub.get("google"), dict) else {}
-    return {
-        "tier":                first_non_empty(sub.get("tier")),
-        "billing_interval":    first_non_empty(sub.get("billingInterval")),
-        "subscription_status": first_non_empty(sub.get("status")),
-        "billing_period_end":  first_non_empty(
-            sub.get("billingPeriodEnd"), sub.get("expiryTime"), google.get("expiryTime")
-        ),
-        "base_plan_id":   first_non_empty(sub.get("basePlanId"),    google.get("basePlanId")),
-        "product_id":     first_non_empty(sub.get("productId"),     google.get("productId")),
-        "purchase_token": first_non_empty(sub.get("purchaseToken"), google.get("purchaseToken")),
-        "user_id":        first_non_empty(sub.get("xaiUserId"),     sub.get("userId")),
-    }
+
+    actives = [b for b in blocks if is_active_subscription(b)]
+    if actives:
+        # Prefer the active sub whose paid access runs latest.
+        chosen = max(actives, key=lambda b: _period_end_epoch(b.get("billing_period_end")))
+    else:
+        # No active sub anywhere → surface the most recent paid block if there
+        # is one (so the tier is still informative), else the most recent block.
+        nonfree = [b for b in blocks if normalize_tier_name(b.get("tier")) != "free"]
+        pool = nonfree or blocks
+        chosen = max(pool, key=lambda b: _period_end_epoch(b.get("billing_period_end")))
+
+    # Carry over a user id from any block if the chosen one is missing it.
+    if not chosen.get("user_id"):
+        for b in blocks:
+            if b.get("user_id"):
+                chosen = {**chosen, "user_id": b["user_id"]}
+                break
+    return chosen
 
 
 def probe_subscription(session: requests.Session) -> Tuple[Dict[str, Optional[str]], str]:
@@ -299,46 +381,47 @@ def normalize_tier_name(tier: Optional[str]) -> str:
     return safe or "free"
 
 
-def _period_end_in_future(value: Optional[str]) -> bool:
-    """True if a billing-period-end value parses to a future moment."""
+def _period_end_epoch(value: Optional[str]) -> float:
+    """Parse a billing-period-end value to a unix timestamp (float).
+    Returns 0.0 when it can't be parsed (so it sorts as 'oldest')."""
     if not value:
-        return False
+        return 0.0
     v = str(value).strip()
-    # Epoch seconds or milliseconds
     try:
         num = float(v)
-        if num > 1e12:        # milliseconds
-            num /= 1000.0
-        return num > time.time()
+        return num / 1000.0 if num > 1e12 else num
     except ValueError:
         pass
-    # ISO 8601 (with or without Z / offset)
     try:
         d = datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
         if d.tzinfo is None:
             d = d.replace(tzinfo=datetime.timezone.utc)
-        return d.timestamp() > time.time()
+        return d.timestamp()
     except Exception:
         pass
-    # Common explicit formats
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%B %d, %Y", "%b %d, %Y"):
         try:
-            d = datetime.datetime.strptime(v[:len(fmt) + 10], fmt)
-            return d.timestamp() > time.time()
+            return datetime.datetime.strptime(v[:len(fmt) + 10], fmt).timestamp()
         except Exception:
             continue
-    return False
+    return 0.0
+
+
+def _period_end_in_future(value: Optional[str]) -> bool:
+    """True if a billing-period-end value parses to a future moment."""
+    ep = _period_end_epoch(value)
+    return ep > time.time() if ep else False
 
 
 def is_active_subscription(r: dict) -> bool:
     """A cookie has an active paid sub only if its tier is non-free AND its
-    subscription status looks active (or, when no status is returned, the
+    subscription status looks active (or, when the status is unknown, the
     billing period still ends in the future). Otherwise it is treated as free."""
     if normalize_tier_name(r.get("tier")) == "free":
         return False
-    status = (r.get("subscription_status") or "").strip().lower()
-    if status:
-        return status in ACTIVE_STATES
+    st = _status_is_active(r.get("subscription_status"))
+    if st is not None:
+        return st
     return _period_end_in_future(r.get("billing_period_end"))
 
 
