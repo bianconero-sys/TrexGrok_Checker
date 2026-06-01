@@ -3,18 +3,6 @@
 #  Core validation logic from Grok_byTrex.py | Web layer by Trex
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run cooperative (green-thread) networking so Socket.IO real-time events and
-# normal HTTP requests (like the ZIP export) never starve each other. This MUST
-# happen before requests / urllib3 / ssl are imported. We fall back gracefully
-# to plain threading if eventlet isn't available (e.g. minimal local runs).
-_ASYNC_MODE = "threading"
-try:
-    import eventlet  # noqa: E402
-    eventlet.monkey_patch()
-    _ASYNC_MODE = "eventlet"
-except Exception:
-    pass
-
 from flask import Flask, render_template_string, request, jsonify, Response, send_file
 from flask_socketio import SocketIO, join_room, leave_room
 import threading
@@ -37,7 +25,10 @@ from urllib3.util.retry import Retry
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "grok-validator-secret-2025")
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode=_ASYNC_MODE)
+# Plain "threading" mode works on every Python version and under gunicorn's
+# gthread worker (Socket.IO uses HTTP long-polling). We give the server a large
+# thread pool (see render.yaml) so live polling never starves the ZIP download.
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 results_store: Dict[str, List[dict]] = {}
 batch_state:   Dict[str, dict]       = {}

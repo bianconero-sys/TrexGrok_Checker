@@ -1,8 +1,4 @@
 flask==3.0.3
 flask-socketio==5.3.6
-python-socketio==5.11.4
-python-engineio==4.9.1
 requests==2.32.3
-eventlet==0.36.1
-dnspython==2.6.1
-gunicorn==22.0.0
+gunicorn==23.0.0

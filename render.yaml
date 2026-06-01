@@ -3,10 +3,10 @@ services:
     name: grok-validator
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -k eventlet -w 1 --timeout 300 --bind 0.0.0.0:$PORT app:app
+    startCommand: gunicorn --worker-class gthread --workers 1 --threads 64 --timeout 300 --bind 0.0.0.0:$PORT app:app
     envVars:
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
-        value: 3.11.9
+        value: 3.12.7
     healthCheckPath: /
