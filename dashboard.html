@@ -162,6 +162,7 @@ body{background:var(--bg);color:var(--text);font-family:'Manrope',system-ui,sans
 .sc.cf  .sv{color:var(--amber)}
 .sc.err .sv{color:var(--violet)}
 .sc.dup .sv{color:var(--blue)}
+.sc.free .sv{color:var(--accent)}
 .sc .jump{font-size:11px;opacity:.5}
 @media (hover:hover){.sc:hover{transform:translateY(-3px)}}
 
@@ -364,17 +365,13 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
   </div>
 
   <div class="nav">
-    <div class="ni active" data-page="dashboard">
+    <div class="ni active" data-page="batch">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
       Dashboard
     </div>
     <div class="ni" data-page="single">
       <svg viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6M9 17h4"/></svg>
       Single Check
-    </div>
-    <div class="ni" data-page="batch">
-      <svg viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
-      Batch Process
     </div>
     <div class="ni" data-page="results">
       <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -415,29 +412,6 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
 
   <div class="content">
 
-    <!-- ── DASHBOARD ─────────────────────────────────────── -->
-    <div class="page active" id="page-dashboard">
-      <div class="stats">
-        <div class="sc glass chk" data-jump="all"><div class="sv" id="s-chk">0</div><div class="sl">Checked</div></div>
-        <div class="sc glass val" data-jump="valid"><div class="sv" id="s-val">0</div><div class="sl">Valid <span class="jump">↗</span></div></div>
-        <div class="sc glass inv" data-jump="invalid"><div class="sv" id="s-inv">0</div><div class="sl">Invalid <span class="jump">↗</span></div></div>
-        <div class="sc glass cf"  data-jump="cloudflare_blocked"><div class="sv" id="s-cf">0</div><div class="sl">CF Block <span class="jump">↗</span></div></div>
-        <div class="sc glass err" data-jump="error"><div class="sv" id="s-err">0</div><div class="sl">Errors <span class="jump">↗</span></div></div>
-        <div class="sc glass dup" data-jump="duplicate"><div class="sv" id="s-dup">0</div><div class="sl">Duplicate <span class="jump">↗</span></div></div>
-      </div>
-
-      <div class="card glass">
-        <div class="ct"><div class="ctd"></div>Live Progress</div>
-        <div class="prog-wrap"><div class="prog-bar" id="prog-bar"></div></div>
-        <div class="prog-txt" id="prog-txt">Idle — start a batch or run a single check.</div>
-      </div>
-
-      <div class="card glass" id="tier-card" style="display:none">
-        <div class="ct"><div class="ctd"></div>Tier Breakdown (active valid hits)</div>
-        <div class="tgrid" id="tier-grid"></div>
-      </div>
-    </div>
-
     <!-- ── SINGLE ────────────────────────────────────────── -->
     <div class="page" id="page-single">
       <div class="card glass">
@@ -469,12 +443,26 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
       </div>
     </div>
 
-    <!-- ── BATCH ─────────────────────────────────────────── -->
-    <div class="page" id="page-batch">
+    <!-- ── BATCH (with dashboard stats on top) ───────────── -->
+    <div class="page active" id="page-batch">
+      <div class="stats">
+        <div class="sc glass chk" data-jump="all"><div class="sv" id="s-chk">0</div><div class="sl">Checked</div></div>
+        <div class="sc glass val" data-jump="hits"><div class="sv" id="s-val">0</div><div class="sl">Hits <span class="jump">↗</span></div></div>
+        <div class="sc glass inv" data-jump="invalid"><div class="sv" id="s-inv">0</div><div class="sl">Invalid <span class="jump">↗</span></div></div>
+        <div class="sc glass cf"  data-jump="cloudflare_blocked"><div class="sv" id="s-cf">0</div><div class="sl">CF Block <span class="jump">↗</span></div></div>
+        <div class="sc glass free" data-jump="free"><div class="sv" id="s-free">0</div><div class="sl">Free <span class="jump">↗</span></div></div>
+        <div class="sc glass dup" data-jump="duplicate"><div class="sv" id="s-dup">0</div><div class="sl">Duplicate <span class="jump">↗</span></div></div>
+      </div>
+
       <div class="card glass">
         <div class="ct"><div class="ctd"></div>Live Progress</div>
         <div class="prog-wrap"><div class="prog-bar" id="prog-bar2"></div></div>
-        <div class="prog-txt" id="prog-txt2">Idle</div>
+        <div class="prog-txt" id="prog-txt2">Idle — upload cookies below to begin.</div>
+      </div>
+
+      <div class="card glass" id="tier-card" style="display:none">
+        <div class="ct"><div class="ctd"></div>Tier Breakdown (active hits)</div>
+        <div class="tgrid" id="tier-grid"></div>
       </div>
 
       <div class="card glass">
@@ -550,7 +538,7 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
           <table>
             <thead><tr>
               <th>#</th><th>File</th><th>Status</th><th>Tier</th>
-              <th>Email</th><th>User ID</th><th>Reason</th><th>Actions</th>
+              <th>Billing</th><th>Sub</th><th>Reason</th><th>Actions</th>
             </tr></thead>
             <tbody id="res-body">
               <tr><td colspan="8"><div class="empty"><div class="eic">📭</div><div class="etx">No results yet — run a check or batch</div></div></td></tr>
@@ -618,14 +606,14 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
 /* ── State ── */
 var SID='g'+Math.random().toString(36).slice(2,10);
 var socket=null, allResults=[], curFilter='all', searchQ='', batchStopped=false;
-var zipFile=null, multiFiles=[], renderTimer=null, _page='dashboard';
+var zipFile=null, multiFiles=[], renderTimer=null, _page='batch';
 
 var BADGE={
   valid:{cls:'bv',lbl:'VALID'}, invalid:{cls:'bi',lbl:'INVALID'},
   cloudflare_blocked:{cls:'bc',lbl:'CF BLOCK'}, error:{cls:'be',lbl:'ERROR'},
   duplicate:{cls:'bd',lbl:'DUP'}
 };
-var TITLES={dashboard:'Dashboard',single:'Single Cookie Check',batch:'Batch Processing',results:'Live Results',settings:'Settings'};
+var TITLES={single:'Single Cookie Check',batch:'Dashboard',results:'Live Results',settings:'Settings'};
 
 /* Export field toggles (key -> label) */
 var FIELDS=[
@@ -742,7 +730,8 @@ function showSingle(d){
   div.innerHTML=h;
   var b=ge('s-ck');if(b)b.addEventListener('click',function(){clipCopy(d.cookie,'Cookie copied!');});
   allResults.push({idx:allResults.length+1,source_file:'single',status:st,tier_display:d.tier_display||'-',
-    email:d.email||'-',user_id:d.user_id||'-',reason:d.reason||'-',cookie:d.cookie||''});
+    email:d.email||'-',user_id:d.user_id||'-',reason:d.reason||'-',cookie:d.cookie||'',
+    active_sub:!!d.active_sub,billing_interval:d.billing_interval||''});
   renderTable();
 }
 
@@ -774,15 +763,19 @@ function startBatch(){
   xhr.send(fd);
 }
 function stopBatch(){if(socket)socket.emit('stop_batch',{sid:SID});batchStopped=true;resetBtn();toast('Batch stopped','');}
-function resetUI(){['s-chk','s-val','s-inv','s-cf','s-err','s-dup'].forEach(function(id){ge(id).textContent='0';});setProg(0,'Starting…');allResults=[];renderTable();}
+function resetUI(){['s-chk','s-val','s-inv','s-cf','s-free','s-dup'].forEach(function(id){var e=ge(id);if(e)e.textContent='0';});setProg(0,'Starting…');allResults=[];renderTable();}
 function resetBtn(){ge('batch-btn').disabled=false;ge('batch-btn').textContent='▶ Start Batch';ge('stop-btn').style.display='none';}
 function onCounts(d){
   var checked=(d.valid||0)+(d.invalid||0)+(d.cloudflare_blocked||0)+(d.error||0)+(d.duplicate||0);
-  ge('s-chk').textContent=checked;ge('s-val').textContent=d.valid||0;ge('s-inv').textContent=d.invalid||0;
-  ge('s-cf').textContent=d.cloudflare_blocked||0;ge('s-err').textContent=d.error||0;ge('s-dup').textContent=d.duplicate||0;
+  ge('s-chk').textContent=checked;
+  ge('s-val').textContent=d.hits||0;          // Hits = valid cookies with an ACTIVE sub
+  ge('s-inv').textContent=d.invalid||0;
+  ge('s-cf').textContent=d.cloudflare_blocked||0;
+  ge('s-free').textContent=d.free||0;          // Free = valid cookies with NO active sub
+  ge('s-dup').textContent=d.duplicate||0;
   if(d.total){var p=Math.round(d.processed/d.total*100);setProg(p,'Processing: '+d.processed+'/'+d.total+' ('+p+'%)');}
 }
-function onBatchDone(d){onCounts(d);resetBtn();setProg(100,'Done — '+(d.valid||0)+' valid, '+(d.duplicate||0)+' duplicate');showTiers(d.tiers||{});toast('Batch done! '+(d.valid||0)+' valid found.','ok');}
+function onBatchDone(d){onCounts(d);resetBtn();setProg(100,'Done — '+(d.hits||0)+' hits, '+(d.free||0)+' free, '+(d.duplicate||0)+' dup');showTiers(d.tiers||{});toast('Batch done! '+(d.hits||0)+' hits found.','ok');}
 function showTiers(t){var h=Object.keys(t).filter(function(k){return t[k]>0;}).map(function(k){return '<div class="tprow"><span class="tpname">'+esc(k)+'</span><span class="tpcnt">'+t[k]+'</span></div>';}).join('');ge('tier-grid').innerHTML=h||'<div class="prog-txt">No tier data</div>';ge('tier-card').style.display='block';}
 
 /* ── Results table ── */
@@ -791,20 +784,34 @@ ge('exp-btn').addEventListener('click',exportZip);
 ge('search-input').addEventListener('input',function(){searchQ=this.value.toLowerCase();renderTable();});
 document.querySelectorAll('.fb').forEach(function(b){b.addEventListener('click',function(){setFilter(b.dataset.f);});});
 
+function billLabel(r){
+  if(r.status!=='valid'&&r.status!=='duplicate')return '—';
+  var bi=String(r.billing_interval||'').toLowerCase();
+  if(bi.indexOf('year')>-1||bi.indexOf('annual')>-1||bi.indexOf('yr')>-1)return 'Yearly';
+  if(bi.indexOf('month')>-1||bi==='mo'||bi.indexOf('mth')>-1)return 'Monthly';
+  return r.billing_interval?r.billing_interval:'—';
+}
+function subLabel(r){
+  if(r.status!=='valid'&&r.status!=='duplicate')return {t:'—',c:'var(--muted)'};
+  return r.active_sub?{t:'Active',c:'var(--green)'}:{t:'Not Active',c:'var(--muted)'};
+}
 function renderTable(){
   var tb=ge('res-body'),rows=allResults.slice();
-  if(curFilter!=='all')rows=rows.filter(function(r){return r.status===curFilter;});
+  if(curFilter==='hits')      rows=rows.filter(function(r){return r.status==='valid'&&r.active_sub;});
+  else if(curFilter==='free') rows=rows.filter(function(r){return r.status==='valid'&&!r.active_sub;});
+  else if(curFilter!=='all')  rows=rows.filter(function(r){return r.status===curFilter;});
   if(searchQ)rows=rows.filter(function(r){return (r.email||'').toLowerCase().indexOf(searchQ)>-1||(r.tier_display||'').toLowerCase().indexOf(searchQ)>-1||(r.source_file||'').toLowerCase().indexOf(searchQ)>-1||(r.user_id||'').toLowerCase().indexOf(searchQ)>-1;});
   if(!rows.length){tb.innerHTML='<tr><td colspan="8"><div class="empty"><div class="eic">📭</div><div class="etx">No results'+(curFilter!=='all'?' for: '+curFilter:'')+'</div></div></td></tr>';return;}
   tb.innerHTML=rows.map(function(r,i){
     var b=BADGE[r.status]||{cls:'be',lbl:'ERR'};
     var acts=r.cookie?'<button class="ab" data-i="'+i+'">🍪 Cookie</button>':'—';
+    var sub=subLabel(r);
     return '<tr><td style="color:var(--muted)">'+esc(r.idx||i+1)+'</td>'
       +'<td style="max-width:110px">'+esc(r.source_file||'')+'</td>'
       +'<td><span class="badge '+b.cls+'">'+b.lbl+'</span></td>'
       +'<td style="color:var(--accent)">'+esc(r.tier_display||'-')+'</td>'
-      +'<td>'+esc(r.email||'-')+'</td>'
-      +'<td style="color:var(--muted)">'+esc((r.user_id||'-').slice(0,20))+'</td>'
+      +'<td>'+esc(billLabel(r))+'</td>'
+      +'<td style="color:'+sub.c+';font-weight:600">'+esc(sub.t)+'</td>'
       +'<td style="color:var(--muted)">'+esc((r.reason||'-').slice(0,28))+'</td>'
       +'<td>'+acts+'</td></tr>';
   }).join('');

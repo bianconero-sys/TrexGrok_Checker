@@ -3,7 +3,7 @@
 #  Core validation logic from Grok_byTrex.py | Web layer by Trex
 # ─────────────────────────────────────────────────────────────────────────────
 
-from flask import Flask, render_template_string, request, jsonify, Response
+from flask import Flask, render_template_string, request, jsonify, Response, send_file
 from flask_socketio import SocketIO, join_room, leave_room
 import threading
 import datetime
@@ -463,7 +463,8 @@ def process_batch(
     do_preflight: bool,
 ) -> None:
     total  = len(cookie_sets)
-    counts = {"valid": 0, "invalid": 0, "cloudflare_blocked": 0, "error": 0, "duplicate": 0}
+    counts = {"valid": 0, "invalid": 0, "cloudflare_blocked": 0, "error": 0,
+              "duplicate": 0, "hits": 0, "free": 0}
     tiers: Dict[str, int] = {}
     seen_emails = set()
     lock  = threading.Lock()
@@ -504,6 +505,10 @@ def process_batch(
                         if email:
                             seen_emails.add(email)
                         counts["valid"] += 1
+                        if row.get("active_sub"):
+                            counts["hits"] += 1
+                        else:
+                            counts["free"] += 1
                         t = normalize_tier_name(result.tier)
                         tiers[t] = tiers.get(t, 0) + 1
                 else:
@@ -646,10 +651,18 @@ def export_zip(sid):
             zf.writestr(f"{folder}/{email_safe}+{folder_safe}_{n:04d}.txt", "\n".join(lines))
 
     buf.seek(0)
-    return Response(
-        buf.read(), mimetype="application/zip",
-        headers={"Content-Disposition": "attachment; filename=grok_results.zip"},
+    data = buf.getvalue()
+    resp = send_file(
+        io.BytesIO(data),
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name="grok_results.zip",
     )
+    # Explicit length avoids chunked transfer encoding, which makes some
+    # mobile browsers (iOS Safari) hang on "Downloading…" forever.
+    resp.headers["Content-Length"] = str(len(data))
+    resp.headers["Cache-Control"]  = "no-store"
+    return resp
 
 
 @socketio.on("join")
