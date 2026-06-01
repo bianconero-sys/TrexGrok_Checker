@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>Grok Validator · by Trex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+/* ═══ Theme Tokens ═══════════════════════════════════════════════════════ */
+:root, [data-theme="dark"]{
+  --bg:#05060c; --text:#eaf0fb; --text2:#9fb0cc; --muted:#5a6a86;
+  --border:rgba(255,255,255,.10);
+  --accent:#2ee6c8; --accent2:#46f0d4; --accent-ink:#04130f;
+  --green:#3ee07a; --red:#ff5d73; --amber:#ffb340; --violet:#b58cff; --blue:#54a8ff;
+  --radius:16px;
+  --glass-base:rgba(10,14,26,.46);
+  --glass-grad:linear-gradient(135deg,rgba(255,255,255,.07)0%,rgba(255,255,255,.02)26%,transparent 52%),linear-gradient(315deg,rgba(255,255,255,.04)0%,transparent 32%);
+  --glass-bd:rgba(255,255,255,.11);
+  --glass-shadow:0 10px 44px rgba(0,0,0,.55),0 2px 10px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.13),inset 0 -1px 0 rgba(0,0,0,.22);
+  --rim:linear-gradient(90deg,rgba(255,255,255,.05),rgba(255,255,255,.55)45%,rgba(255,255,255,.55)55%,rgba(255,255,255,.05));
+  --field:rgba(255,255,255,.05);
+}
+[data-theme="light"]{
+  --bg:#e9edf6; --text:#0b1020; --text2:#33415c; --muted:rgba(11,16,32,.5);
+  --border:rgba(255,255,255,.5);
+  --accent:#0bb89b; --accent2:#08a589; --accent-ink:#ffffff;
+  --green:#0a9a45; --red:#d83a55; --amber:#cf8400; --violet:#7c4dff; --blue:#1f7ae0;
+  --radius:18px;
+  --glass-base:rgba(255,255,255,.5);
+  --glass-grad:linear-gradient(135deg,rgba(255,255,255,.55)0%,rgba(255,255,255,.18)26%,transparent 54%),linear-gradient(315deg,rgba(255,255,255,.12)0%,transparent 32%);
+  --glass-bd:rgba(255,255,255,.6);
+  --glass-shadow:0 8px 38px rgba(20,30,60,.14),0 2px 8px rgba(20,30,60,.08),inset 0 1.5px 0 rgba(255,255,255,1),inset 0 -1px 0 rgba(0,0,0,.04);
+  --rim:linear-gradient(90deg,rgba(255,255,255,.4),rgba(255,255,255,1)45%,rgba(255,255,255,1)55%,rgba(255,255,255,.4));
+  --field:rgba(255,255,255,.4);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:'Manrope',system-ui,sans-serif;
+  font-size:15px;display:flex;overflow:hidden;-webkit-font-smoothing:antialiased}
+.mono{font-family:'DM Mono',ui-monospace,monospace}
+
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(140,160,200,.25);border-radius:4px}
+
+/* ═══ Animated Wallpaper (gives the glass something to refract) ═══════════ */
+#wall{position:fixed;inset:-25%;z-index:-2;overflow:hidden;pointer-events:none}
+.blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;will-change:transform}
+.b1{width:46vmax;height:46vmax;background:radial-gradient(circle,#1b8f80,transparent 70%);left:-8%;top:-12%;animation:bf1 26s ease-in-out infinite alternate}
+.b2{width:42vmax;height:42vmax;background:radial-gradient(circle,#3a52c4,transparent 70%);right:-10%;top:2%;animation:bf2 30s ease-in-out infinite alternate}
+.b3{width:50vmax;height:50vmax;background:radial-gradient(circle,#7a3fb0,transparent 70%);left:25%;bottom:-22%;animation:bf3 34s ease-in-out infinite alternate}
+[data-theme="light"] .blob{opacity:.4;filter:blur(90px)}
+@keyframes bf1{to{transform:translate(14%,10%) scale(1.15)}}
+@keyframes bf2{to{transform:translate(-12%,16%) scale(1.1)}}
+@keyframes bf3{to{transform:translate(8%,-14%) scale(1.18)}}
+@media (prefers-reduced-motion:reduce){.blob{animation:none}}
+
+/* ═══ Glass Recipe ═══════════════════════════════════════════════════════ */
+.glass{position:relative;overflow:hidden;background:var(--glass-grad),var(--glass-base);
+  backdrop-filter:blur(34px) saturate(190%);-webkit-backdrop-filter:blur(34px) saturate(190%);
+  border:1px solid var(--glass-bd);box-shadow:var(--glass-shadow)}
+.glass::before{content:'';position:absolute;top:0;left:0;right:0;height:1.5px;background:var(--rim);
+  pointer-events:none;z-index:3;opacity:.8}
+
+/* ═══ Sidebar ════════════════════════════════════════════════════════════ */
+.sb{width:236px;min-width:236px;flex-shrink:0;display:flex;flex-direction:column;
+  position:relative;z-index:40;border-radius:0;border-top:none;border-bottom:none;border-left:none}
+.brand{padding:22px 20px 18px;border-bottom:1px solid var(--border)}
+.brand-row{display:flex;align-items:center;gap:12px}
+.brand-mark{width:38px;height:38px;flex-shrink:0;color:var(--accent);
+  filter:drop-shadow(0 0 10px rgba(46,230,200,.45))}
+.brand-name{font-size:16px;font-weight:800;letter-spacing:-.01em;line-height:1.05}
+.brand-name .g{color:var(--accent)}
+.brand-sub{font-size:11px;color:var(--muted);margin-top:3px;font-weight:500}
+.brand-ver{display:inline-block;margin-top:10px;font-size:10px;font-weight:600;letter-spacing:.05em;
+  color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);
+  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);padding:2px 9px;border-radius:6px}
+
+.nav{flex:1;padding:14px 12px;overflow-y:auto}
+.ni{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:11px;cursor:pointer;
+  color:var(--text2);font-weight:600;font-size:14px;transition:color .16s,background .16s;
+  position:relative;user-select:none;-webkit-tap-highlight-color:transparent;margin-bottom:2px}
+.ni:hover{color:var(--text);background:color-mix(in srgb,var(--text) 6%,transparent)}
+.ni.active{color:var(--accent);background:color-mix(in srgb,var(--accent) 11%,transparent)}
+.ni.active::before{content:'';position:absolute;left:-12px;top:8px;bottom:8px;width:3px;
+  background:var(--accent);border-radius:0 4px 4px 0;box-shadow:0 0 10px var(--accent)}
+.ni svg{width:19px;height:19px;flex-shrink:0;stroke:currentColor;stroke-width:1.9;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+
+.sb-foot{padding:14px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+.conn{display:flex;align-items:center;gap:7px;font-weight:600;color:var(--text2)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green);animation:pulse 2.4s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.sb-foot .meta{margin-top:6px;line-height:1.7}
+.sb-foot .meta b{color:var(--accent);font-weight:600}
+
+/* Theme switch */
+.theme-sw{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.theme-sw span{font-size:11px;color:var(--muted);font-weight:600}
+.tsw{position:relative;width:46px;height:25px;cursor:pointer;flex-shrink:0}
+.tsw input{display:none}
+.tsw .track{position:absolute;inset:0;border-radius:13px;background:var(--field);
+  border:1px solid var(--glass-bd);transition:.3s}
+.tsw .thumb{position:absolute;left:3px;top:3px;width:17px;height:17px;border-radius:50%;
+  background:var(--text2);transition:transform .28s cubic-bezier(.4,0,.2,1),background .28s;
+  display:flex;align-items:center;justify-content:center}
+.tsw input:checked ~ .track{background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.tsw input:checked ~ .track .thumb{transform:translateX(21px);background:var(--accent)}
+
+/* ═══ Main ═══════════════════════════════════════════════════════════════ */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{display:flex;align-items:center;gap:14px;padding:0 24px;height:58px;flex-shrink:0;
+  border-radius:0;border-left:none;border-right:none;border-top:none;z-index:30}
+.tb-title{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.tb-sub{margin-left:auto;font-size:11px;color:var(--muted);font-weight:500}
+.hbg{display:none;background:none;border:none;cursor:pointer;padding:8px;color:var(--text);
+  flex-direction:column;gap:5px;-webkit-tap-highlight-color:transparent}
+.hbg span{display:block;width:21px;height:2px;background:currentColor;border-radius:2px}
+
+.mob-ov{display:none;position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.5);
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.mob-ov.on{display:block}
+
+.content{flex:1;overflow-y:auto;padding:24px;overflow-x:hidden}
+
+/* ═══ Page transition ════════════════════════════════════════════════════ */
+.page{display:none}
+.page.active{display:block;animation:pageIn .24s cubic-bezier(.4,0,.2,1) both}
+@keyframes pageIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ═══ Cards ══════════════════════════════════════════════════════════════ */
+.card{border-radius:var(--radius);padding:22px;margin-bottom:16px}
+.card::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:2;
+  opacity:0;transition:opacity .28s ease;
+  background:radial-gradient(440px circle at var(--mx,50%) var(--my,0%),color-mix(in srgb,var(--accent) 18%,transparent)0%,transparent 60%)}
+@media (hover:hover) and (pointer:fine){
+  .card:hover::after{opacity:1}
+  .card:hover{transform:translateY(-3px)}
+}
+@media (hover:none){ .card:active{transform:scale(.99)} }
+.card{transition:transform .2s cubic-bezier(.4,0,.2,1)}
+.ct{font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.1em;text-transform:uppercase;
+  margin-bottom:16px;display:flex;align-items:center;gap:9px;position:relative;z-index:4}
+.ctd{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.card > *{position:relative;z-index:4}
+.card::before{z-index:5}
+
+/* ═══ Stats ══════════════════════════════════════════════════════════════ */
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:13px;margin-bottom:18px}
+.sc{border-radius:15px;padding:18px 14px;text-align:center;cursor:pointer;
+  transition:transform .2s cubic-bezier(.4,0,.2,1)}
+.sc .sv{font-size:32px;font-weight:800;line-height:1;margin-bottom:7px;font-family:'Manrope',sans-serif;font-variant-numeric:tabular-nums}
+.sc .sl{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  display:flex;align-items:center;justify-content:center;gap:4px}
+.sc.chk .sv{color:var(--amber)}
+.sc.val .sv{color:var(--green);text-shadow:0 0 18px color-mix(in srgb,var(--green) 50%,transparent)}
+.sc.inv .sv{color:var(--red)}
+.sc.cf  .sv{color:var(--amber)}
+.sc.err .sv{color:var(--violet)}
+.sc.dup .sv{color:var(--blue)}
+.sc .jump{font-size:11px;opacity:.5}
+@media (hover:hover){.sc:hover{transform:translateY(-3px)}}
+
+/* ═══ Progress ═══════════════════════════════════════════════════════════ */
+.prog-wrap{height:7px;border-radius:5px;overflow:hidden;background:var(--field);
+  border:1px solid var(--border);margin:8px 0}
+.prog-bar{height:100%;width:0;border-radius:5px;transition:width .4s ease;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+  box-shadow:0 0 12px color-mix(in srgb,var(--accent) 60%,transparent)}
+.prog-txt{font-size:11px;color:var(--muted);font-weight:500}
+
+/* ═══ Forms ══════════════════════════════════════════════════════════════ */
+label{display:block;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;
+  text-transform:uppercase;margin-bottom:8px}
+textarea,input[type=text],input[type=number],select{
+  width:100%;background:var(--field);border:1px solid var(--glass-bd);border-radius:11px;
+  color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:11px 14px;outline:none;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  transition:border-color .18s,box-shadow .18s;resize:vertical}
+textarea:focus,input:focus,select:focus{border-color:var(--accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+textarea::placeholder,input::placeholder{color:var(--muted)}
+textarea{min-height:160px}
+select{appearance:none;cursor:pointer;padding-right:36px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237a8aa6' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 13px center}
+
+/* ═══ Buttons ════════════════════════════════════════════════════════════ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:11px 20px;
+  border-radius:11px;border:none;cursor:pointer;font-family:'Manrope',sans-serif;font-size:13.5px;
+  font-weight:700;letter-spacing:.01em;transition:transform .14s,box-shadow .2s,background .2s;
+  outline:none;-webkit-tap-highlight-color:transparent}
+.btn:active{transform:scale(.97)}
+.btn-p{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--accent-ink);
+  box-shadow:0 4px 18px color-mix(in srgb,var(--accent) 40%,transparent)}
+.btn-p:hover{box-shadow:0 6px 26px color-mix(in srgb,var(--accent) 55%,transparent)}
+.btn-g{background:var(--field);border:1px solid var(--glass-bd);color:var(--text2);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.btn-g:hover{color:var(--text);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.btn-d{background:color-mix(in srgb,var(--red) 14%,transparent);
+  border:1px solid color-mix(in srgb,var(--red) 35%,transparent);color:var(--red)}
+.btn-d:hover{background:color-mix(in srgb,var(--red) 22%,transparent)}
+.btn-full{width:100%;padding:14px;font-size:14.5px}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+/* ═══ Tabs ═══════════════════════════════════════════════════════════════ */
+.tbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.tab{padding:9px 16px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;
+  border-bottom:2px solid transparent;transition:color .15s,border-color .15s;
+  -webkit-tap-highlight-color:transparent}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tc{display:none}.tc.active{display:block}
+
+/* ═══ Toggle ═════════════════════════════════════════════════════════════ */
+.trow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;
+  border-bottom:1px solid var(--border)}
+.trow:last-child{border-bottom:none}
+.tlbl{font-size:13.5px;color:var(--text);font-weight:600}
+.tlbl small{display:block;font-size:11px;color:var(--muted);font-weight:500;margin-top:2px}
+.tgl{position:relative;width:48px;height:27px;flex-shrink:0;cursor:pointer}
+.tgl input{display:none}
+.tgl .track{position:absolute;inset:0;border-radius:14px;background:var(--field);
+  border:1px solid var(--glass-bd);transition:background .3s,border-color .3s}
+.tgl .thumb{position:absolute;left:3px;top:3px;width:19px;height:19px;border-radius:50%;
+  background:var(--text2);transition:transform .28s cubic-bezier(.4,0,.2,1),background .28s;
+  box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tgl input:checked ~ .track{background:color-mix(in srgb,var(--accent) 22%,transparent);
+  border-color:color-mix(in srgb,var(--accent) 42%,transparent)}
+.tgl input:checked ~ .track .thumb{transform:translateX(21px);background:var(--accent)}
+
+/* ═══ Drop Zone ══════════════════════════════════════════════════════════ */
+.dz{border:1.5px dashed var(--glass-bd);border-radius:13px;padding:30px;text-align:center;
+  cursor:pointer;transition:border-color .2s,background .2s;position:relative;background:var(--field)}
+.dz:hover,.dz.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.dz input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.dz-ic{font-size:30px;margin-bottom:10px}
+.dz-tx{font-size:14px;color:var(--text2);font-weight:600}
+.dz-hi{font-size:11px;color:var(--muted);margin-top:5px;font-weight:500}
+.fchip{display:inline-flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--accent) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);color:var(--accent);
+  padding:4px 10px;border-radius:8px;font-size:11.5px;margin:3px;font-weight:600}
+.flist{margin-top:12px}
+
+/* ═══ Single Result ══════════════════════════════════════════════════════ */
+.rbanner{display:flex;align-items:center;gap:11px;padding:13px 16px;border-radius:11px;
+  margin-bottom:16px;font-size:14.5px;font-weight:700}
+.r-valid{background:color-mix(in srgb,var(--green) 12%,transparent);border:1px solid color-mix(in srgb,var(--green) 30%,transparent);color:var(--green)}
+.r-invalid{background:color-mix(in srgb,var(--red) 12%,transparent);border:1px solid color-mix(in srgb,var(--red) 30%,transparent);color:var(--red)}
+.r-cf{background:color-mix(in srgb,var(--amber) 12%,transparent);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);color:var(--amber)}
+.r-error{background:color-mix(in srgb,var(--violet) 12%,transparent);border:1px solid color-mix(in srgb,var(--violet) 30%,transparent);color:var(--violet)}
+.rrow{display:flex;gap:12px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--border)}
+.rrow:last-child{border:none}
+.rk{font-size:11px;color:var(--muted);width:140px;flex-shrink:0;text-transform:uppercase;font-weight:600;letter-spacing:.03em}
+.rv{font-family:'DM Mono',monospace;font-size:13px;color:var(--text);word-break:break-all}
+.sbtns{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+
+/* ═══ Filter Bar ═════════════════════════════════════════════════════════ */
+.fbar{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap}
+.fb{padding:7px 14px;border-radius:9px;border:1px solid var(--glass-bd);background:var(--field);
+  color:var(--muted);cursor:pointer;font-size:12px;font-weight:700;letter-spacing:.03em;
+  transition:color .15s,border-color .15s,background .15s;-webkit-tap-highlight-color:transparent;
+  min-height:34px}
+.fb:hover{color:var(--text)}
+.fb.active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent);
+  background:color-mix(in srgb,var(--accent) 11%,transparent)}
+
+/* ═══ Table ══════════════════════════════════════════════════════════════ */
+.twrap{overflow-x:auto;border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+thead th{color:var(--muted);font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  padding:11px 13px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+tbody tr{border-bottom:1px solid var(--border);transition:background .12s}
+tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
+  white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis}
+.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:7px;font-size:10px;
+  font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-family:'Manrope',sans-serif}
+.bv{background:color-mix(in srgb,var(--green) 13%,transparent);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 28%,transparent)}
+.bi{background:color-mix(in srgb,var(--red) 13%,transparent);color:var(--red);border:1px solid color-mix(in srgb,var(--red) 28%,transparent)}
+.bc{background:color-mix(in srgb,var(--amber) 13%,transparent);color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 28%,transparent)}
+.be{background:color-mix(in srgb,var(--violet) 13%,transparent);color:var(--violet);border:1px solid color-mix(in srgb,var(--violet) 28%,transparent)}
+.bd{background:color-mix(in srgb,var(--blue) 13%,transparent);color:var(--blue);border:1px solid color-mix(in srgb,var(--blue) 28%,transparent)}
+.empty{text-align:center;padding:54px 20px;color:var(--muted)}
+.eic{font-size:34px;margin-bottom:12px;opacity:.7}
+.etx{font-size:13px;font-weight:500}
+.ab{padding:5px 11px;border-radius:8px;border:1px solid var(--glass-bd);background:var(--field);
+  color:var(--text2);cursor:pointer;font-size:11px;font-weight:600;transition:color .15s,border-color .15s;
+  -webkit-tap-highlight-color:transparent}
+.ab:hover{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+
+/* ═══ Tier Grid + Field Toggle Grid ══════════════════════════════════════ */
+.tgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+.tprow{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;
+  background:var(--field);border:1px solid var(--border);border-radius:10px}
+.tpname{font-size:13px;color:var(--text2);text-transform:capitalize;font-weight:600}
+.tpcnt{font-family:'DM Mono',monospace;font-size:15px;color:var(--accent);font-weight:600}
+.fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px 22px}
+
+.orow{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px}
+
+/* ═══ Spinner / Toast ════════════════════════════════════════════════════ */
+.spin{width:15px;height:15px;border:2px solid color-mix(in srgb,var(--accent-ink) 30%,transparent);
+  border-top-color:var(--accent-ink);border-radius:50%;animation:sp .7s linear infinite;display:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tc-wrap{position:fixed;bottom:22px;right:22px;display:flex;flex-direction:column;gap:9px;z-index:9999;pointer-events:none}
+.toast{border-radius:11px;padding:11px 17px;font-size:13px;font-weight:600;color:var(--text);
+  background:var(--glass-base);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--glass-bd);box-shadow:0 8px 30px rgba(0,0,0,.4);
+  animation:tin .2s ease,tout .35s ease 2.7s forwards}
+.toast.ok{border-color:color-mix(in srgb,var(--green) 40%,transparent);color:var(--green)}
+.toast.err{border-color:color-mix(in srgb,var(--red) 40%,transparent);color:var(--red)}
+@keyframes tin{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+@keyframes tout{to{opacity:0;transform:translateX(12px)}}
+
+.info-block{font-size:13px;color:var(--text2);line-height:1.9}
+.info-block b{color:var(--accent);font-weight:600}
+.info-block .mono{color:var(--muted)}
+
+/* ═══ Responsive ═════════════════════════════════════════════════════════ */
+@media(max-width:880px){.stats{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:768px){
+  .hbg{display:flex}
+  .sb{position:fixed;top:0;left:0;bottom:0;width:262px;z-index:50;
+    transform:translateX(-101%);visibility:hidden;
+    transition:transform .3s cubic-bezier(.4,0,.2,1),visibility .3s}
+  .sb.open{transform:translateX(0);visibility:visible;box-shadow:8px 0 50px rgba(0,0,0,.6)}
+  .topbar{padding:0 12px}.tb-sub{display:none}
+  .content{padding:14px}
+  .orow{grid-template-columns:1fr;gap:12px}
+  .tgrid,.fgrid{grid-template-columns:1fr}
+  .card{padding:18px}
+  thead th:nth-child(2),tbody td:nth-child(2){display:none}
+  thead th:nth-child(7),tbody td:nth-child(7){display:none}
+}
+@media(max-width:520px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .sc .sv{font-size:24px}
+}
+</style>
+</head>
+<body>
+
+<div id="wall"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+
+<!-- ═══ Sidebar ═══ -->
+<nav class="sb glass" id="sidebar">
+  <div class="brand">
+    <div class="brand-row">
+      <svg class="brand-mark" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2l8 3v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V5l8-3z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="M8.5 12l2.4 2.4L15.5 9.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <div class="brand-name"><span class="g">Grok</span> Validator</div>
+        <div class="brand-sub">by Trex</div>
+      </div>
+    </div>
+    <span class="brand-ver">v3.0 · WEB</span>
+  </div>
+
+  <div class="nav">
+    <div class="ni active" data-page="dashboard">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+      Dashboard
+    </div>
+    <div class="ni" data-page="single">
+      <svg viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6M9 17h4"/></svg>
+      Single Check
+    </div>
+    <div class="ni" data-page="batch">
+      <svg viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+      Batch Process
+    </div>
+    <div class="ni" data-page="results">
+      <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Live Results
+    </div>
+    <div class="ni" data-page="settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </div>
+  </div>
+
+  <div class="sb-foot">
+    <div class="conn"><span class="dot"></span>Connected</div>
+    <div class="meta">
+      <div>For educational purposes only.</div>
+      <div>Session <b id="sid-lbl">–</b></div>
+    </div>
+    <div class="theme-sw">
+      <span>Theme</span>
+      <label class="tsw">
+        <input type="checkbox" id="theme-toggle" checked>
+        <span class="track"><span class="thumb"></span></span>
+      </label>
+      <span id="theme-name">Dark</span>
+    </div>
+  </div>
+</nav>
+
+<div class="mob-ov" id="mob-ov"></div>
+
+<!-- ═══ Main ═══ -->
+<div class="main">
+  <div class="topbar glass">
+    <button class="hbg" id="hbg" aria-label="Menu"><span></span><span></span><span></span></button>
+    <div class="tb-title" id="pg-title">Dashboard</div>
+    <div class="tb-sub">Grok Cookie Validator · by Trex</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ── DASHBOARD ─────────────────────────────────────── -->
+    <div class="page active" id="page-dashboard">
+      <div class="stats">
+        <div class="sc glass chk" data-jump="all"><div class="sv" id="s-chk">0</div><div class="sl">Checked</div></div>
+        <div class="sc glass val" data-jump="valid"><div class="sv" id="s-val">0</div><div class="sl">Valid <span class="jump">↗</span></div></div>
+        <div class="sc glass inv" data-jump="invalid"><div class="sv" id="s-inv">0</div><div class="sl">Invalid <span class="jump">↗</span></div></div>
+        <div class="sc glass cf"  data-jump="cloudflare_blocked"><div class="sv" id="s-cf">0</div><div class="sl">CF Block <span class="jump">↗</span></div></div>
+        <div class="sc glass err" data-jump="error"><div class="sv" id="s-err">0</div><div class="sl">Errors <span class="jump">↗</span></div></div>
+        <div class="sc glass dup" data-jump="duplicate"><div class="sv" id="s-dup">0</div><div class="sl">Duplicate <span class="jump">↗</span></div></div>
+      </div>
+
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Live Progress</div>
+        <div class="prog-wrap"><div class="prog-bar" id="prog-bar"></div></div>
+        <div class="prog-txt" id="prog-txt">Idle — start a batch or run a single check.</div>
+      </div>
+
+      <div class="card glass" id="tier-card" style="display:none">
+        <div class="ct"><div class="ctd"></div>Tier Breakdown (active valid hits)</div>
+        <div class="tgrid" id="tier-grid"></div>
+      </div>
+    </div>
+
+    <!-- ── SINGLE ────────────────────────────────────────── -->
+    <div class="page" id="page-single">
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Cookie Input</div>
+        <label>Paste Netscape Cookie (tab-delimited)</label>
+        <textarea id="sc-input" style="min-height:190px"
+          placeholder=".grok.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sso&#9;...&#10;.grok.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sso-rw&#9;...&#10;&#10;Drag &amp; drop a .txt file here or use Load File"></textarea>
+        <div style="display:flex;gap:10px;margin-top:13px;flex-wrap:wrap">
+          <button class="btn btn-g" onclick="document.getElementById('sc-file').click()">⬆ Load File</button>
+          <input type="file" id="sc-file" accept=".txt" style="display:none">
+          <button class="btn btn-g" onclick="document.getElementById('sc-input').value=''">🗑 Clear</button>
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Run Check</div>
+        <div class="trow" style="border:none;padding-top:0">
+          <div class="tlbl">Preflight GET<small>Visit grok.com before the session check</small></div>
+          <label class="tgl"><input type="checkbox" id="sc-preflight" checked><span class="track"><span class="thumb"></span></span></label>
+        </div>
+        <button class="btn btn-p btn-full" id="sc-btn" style="margin-top:8px">
+          <div class="spin" id="sc-spin"></div><span id="sc-btntxt">Check Cookie</span>
+        </button>
+      </div>
+
+      <div class="card glass" id="sc-result-card" style="display:none">
+        <div class="ct"><div class="ctd"></div>Result</div>
+        <div id="sc-result"></div>
+      </div>
+    </div>
+
+    <!-- ── BATCH ─────────────────────────────────────────── -->
+    <div class="page" id="page-batch">
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Live Progress</div>
+        <div class="prog-wrap"><div class="prog-bar" id="prog-bar2"></div></div>
+        <div class="prog-txt" id="prog-txt2">Idle</div>
+      </div>
+
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Cookie Files</div>
+        <div class="tbar">
+          <div class="tab active" data-tab="zip">ZIP Archive</div>
+          <div class="tab" data-tab="multi">Multiple TXT</div>
+          <div class="tab" data-tab="paste">Paste Text</div>
+        </div>
+        <div class="tc active" id="tab-zip">
+          <div class="dz" id="dz-zip">
+            <div class="dz-ic">📦</div>
+            <div class="dz-tx">Drop ZIP file here or click to browse</div>
+            <div class="dz-hi">ZIP should contain Netscape .txt cookie files</div>
+            <input type="file" id="inp-zip" accept=".zip">
+          </div>
+          <div class="flist" id="fl-zip"></div>
+        </div>
+        <div class="tc" id="tab-multi">
+          <div class="dz" id="dz-multi">
+            <div class="dz-ic">📂</div>
+            <div class="dz-tx">Drop .txt files here or click to browse</div>
+            <div class="dz-hi">Select one or multiple Netscape cookie files</div>
+            <input type="file" id="inp-multi" accept=".txt" multiple>
+          </div>
+          <div class="flist" id="fl-multi"></div>
+        </div>
+        <div class="tc" id="tab-paste">
+          <label>Paste cookies — separate multiple with ---</label>
+          <textarea id="b-paste" style="min-height:200px"
+            placeholder=".grok.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sso&#9;token1&#10;---&#10;.grok.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sso&#9;token2"></textarea>
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Options</div>
+        <div class="orow">
+          <div><label>Threads (1–50)</label><input type="number" id="b-threads" value="10" min="1" max="50"></div>
+          <div style="display:flex;align-items:flex-end">
+            <div class="trow" style="border:none;padding:0;width:100%">
+              <div class="tlbl">Preflight GET<small>Visit grok.com first</small></div>
+              <label class="tgl"><input type="checkbox" id="b-preflight" checked><span class="track"><span class="thumb"></span></span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-p btn-full" id="batch-btn">▶ Start Batch</button>
+      <div style="height:9px"></div>
+      <button class="btn btn-d btn-full" id="stop-btn" style="display:none">■ Stop Processing</button>
+    </div>
+
+    <!-- ── RESULTS ───────────────────────────────────────── -->
+    <div class="page" id="page-results">
+      <div class="card glass" style="padding:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:11px;flex-wrap:wrap;margin-bottom:14px">
+          <div class="ct" style="margin:0"><div class="ctd"></div>Results</div>
+          <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="search-input" style="width:190px;padding:7px 12px;font-size:12px" placeholder="email, tier, file…">
+            <button class="btn btn-g" style="padding:8px 15px;font-size:12px" id="exp-btn">⬇ Export ZIP</button>
+            <button class="btn btn-g" style="padding:8px 15px;font-size:12px" id="clr-btn">🗑 Clear</button>
+          </div>
+        </div>
+        <div class="fbar">
+          <button class="fb active" data-f="all">All</button>
+          <button class="fb" data-f="valid">Valid</button>
+          <button class="fb" data-f="invalid">Invalid</button>
+          <button class="fb" data-f="cloudflare_blocked">CF Block</button>
+          <button class="fb" data-f="error">Error</button>
+          <button class="fb" data-f="duplicate">Duplicate</button>
+        </div>
+        <div class="twrap">
+          <table>
+            <thead><tr>
+              <th>#</th><th>File</th><th>Status</th><th>Tier</th>
+              <th>Email</th><th>User ID</th><th>Reason</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="res-body">
+              <tr><td colspan="8"><div class="empty"><div class="eic">📭</div><div class="etx">No results yet — run a check or batch</div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SETTINGS ──────────────────────────────────────── -->
+    <div class="page" id="page-settings">
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Proxies</div>
+        <label>One proxy per line — http, socks4, socks5 supported</label>
+        <textarea id="prx-input" style="min-height:130px;margin-top:6px"
+          placeholder="192.168.1.1:8080&#10;user:pass@10.0.0.1:3128&#10;socks5://user:pass@host:1080"></textarea>
+        <div style="display:flex;gap:10px;margin-top:13px;flex-wrap:wrap">
+          <button class="btn btn-g" onclick="document.getElementById('prx-file').click()">⬆ Load .txt</button>
+          <input type="file" id="prx-file" accept=".txt" style="display:none">
+          <button class="btn btn-g" id="prx-clr">🗑 Clear</button>
+        </div>
+        <div id="prx-cnt" class="prog-txt" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Export Fields — show / hide in result .txt</div>
+        <div class="fgrid" id="field-grid"></div>
+        <div class="prog-txt" style="margin-top:12px">The <b style="color:var(--accent)">Cookie</b> block is always included. Disabled fields are removed from every exported file.</div>
+      </div>
+
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Default Options</div>
+        <div class="trow">
+          <div class="tlbl">Preflight GET by default<small>GET grok.com before each session check</small></div>
+          <label class="tgl"><input type="checkbox" id="cfg-preflight" checked><span class="track"><span class="thumb"></span></span></label>
+        </div>
+        <div style="margin-top:16px;max-width:220px">
+          <label>Default Threads</label>
+          <input type="number" id="cfg-threads" value="10" min="1" max="50">
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="ct"><div class="ctd"></div>Folder Classification</div>
+        <div class="info-block">
+          <p>On export, cookies are sorted into folders by subscription:</p>
+          <p style="margin-top:8px">• <b>Active paid subs</b> → their tier folder (e.g. <span class="mono">/premium/</span>)</p>
+          <p>• <b>No active sub</b> in REST subscription history → <span class="mono">/free/</span></p>
+          <p style="margin-top:8px">Inactive, cancelled, or expired subscriptions are treated as <b>free</b>.</p>
+        </div>
+      </div>
+
+      <button class="btn btn-p" id="save-btn">💾 Save Settings</button>
+    </div>
+
+  </div>
+</div>
+
+<div class="tc-wrap" id="tc-wrap"></div>
+
+<script>
+(function(){
+'use strict';
+
+/* ── State ── */
+var SID='g'+Math.random().toString(36).slice(2,10);
+var socket=null, allResults=[], curFilter='all', searchQ='', batchStopped=false;
+var zipFile=null, multiFiles=[], renderTimer=null, _page='dashboard';
+
+var BADGE={
+  valid:{cls:'bv',lbl:'VALID'}, invalid:{cls:'bi',lbl:'INVALID'},
+  cloudflare_blocked:{cls:'bc',lbl:'CF BLOCK'}, error:{cls:'be',lbl:'ERROR'},
+  duplicate:{cls:'bd',lbl:'DUP'}
+};
+var TITLES={dashboard:'Dashboard',single:'Single Cookie Check',batch:'Batch Processing',results:'Live Results',settings:'Settings'};
+
+/* Export field toggles (key -> label) */
+var FIELDS=[
+  ['email','Email'],['tier','Tier'],['billing_interval','Billing Intv'],
+  ['subscription_status','Sub Status'],['billing_period_end','Period End'],
+  ['product_id','Product ID'],['base_plan_id','Base Plan ID'],
+  ['purchase_token','Purchase Token'],['user_id','User ID'],['name','Name'],
+  ['source_file','Source File'],['status','Validation'],['reason','Reason']
+];
+
+/* ── Helpers ── */
+function ge(id){return document.getElementById(id);}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function toast(m,t){var w=ge('tc-wrap'),e=document.createElement('div');e.className='toast'+(t?' '+t:'');e.textContent=m;w.appendChild(e);setTimeout(function(){e.remove();},3100);}
+function clipCopy(txt,m){if(!txt){toast('Nothing to copy','err');return;}
+  if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(txt).then(function(){toast(m||'Copied!','ok');}).catch(function(){fb(txt,m);});}else fb(txt,m);}
+function fb(txt,m){var ta=document.createElement('textarea');ta.value=txt;ta.style.cssText='position:fixed;top:-9999px;opacity:0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast(m||'Copied!','ok');}catch(e){toast('Copy failed','err');}document.body.removeChild(ta);}
+function fmtSize(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB';}
+function scheduleRender(){if(renderTimer)clearTimeout(renderTimer);renderTimer=setTimeout(function(){renderTimer=null;renderTable();},150);}
+function setProg(pct,txt){[ge('prog-bar'),ge('prog-bar2')].forEach(function(b){if(b)b.style.width=pct+'%';});[ge('prog-txt'),ge('prog-txt2')].forEach(function(t){if(t)t.textContent=txt;});}
+
+/* ── Theme ── */
+function applyTheme(dark){
+  document.documentElement.setAttribute('data-theme',dark?'dark':'light');
+  ge('theme-name').textContent=dark?'Dark':'Light';
+  try{localStorage.setItem('gv-theme',dark?'dark':'light');}catch(e){}
+}
+(function(){var saved='dark';try{saved=localStorage.getItem('gv-theme')||'dark';}catch(e){}
+  var dark=saved!=='light';ge('theme-toggle').checked=dark;applyTheme(dark);})();
+ge('theme-toggle').addEventListener('change',function(){applyTheme(this.checked);});
+
+/* ── Socket ── */
+function initSocket(){
+  socket=io({transports:['websocket','polling']});
+  socket.on('connect',function(){socket.emit('join',{sid:SID});setDot(true);});
+  socket.on('disconnect',function(){setDot(false);});
+  socket.on('result_row',function(r){if(batchStopped)return;allResults.push(r);scheduleRender();});
+  socket.on('counts',function(d){if(batchStopped)return;onCounts(d);});
+  socket.on('batch_done',function(d){if(batchStopped)return;onBatchDone(d);});
+}
+function setDot(on){var d=document.querySelector('.dot');if(!d)return;d.style.background=on?'var(--green)':'var(--red)';d.style.boxShadow='0 0 7px '+(on?'var(--green)':'var(--red)');}
+
+/* ── Navigation ── */
+function showPage(name){
+  if(_page===name){closeSidebar();return;}
+  _page=name;
+  document.querySelectorAll('.ni').forEach(function(n){n.classList.toggle('active',n.dataset.page===name);});
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  ge('page-'+name).classList.add('active');
+  ge('pg-title').textContent=TITLES[name]||name;
+  closeSidebar();
+}
+document.querySelectorAll('.ni').forEach(function(i){i.addEventListener('click',function(){showPage(i.dataset.page);});});
+
+/* ── Sidebar ── */
+function openSidebar(){ge('sidebar').classList.add('open');ge('mob-ov').classList.add('on');}
+function closeSidebar(){ge('sidebar').classList.remove('open');ge('mob-ov').classList.remove('on');}
+ge('hbg').addEventListener('click',function(){ge('sidebar').classList.contains('open')?closeSidebar():openSidebar();});
+ge('mob-ov').addEventListener('click',closeSidebar);
+
+/* ── Stat cards → jump to filtered results ── */
+document.querySelectorAll('.sc').forEach(function(c){
+  c.addEventListener('click',function(){setFilter(c.dataset.jump);showPage('results');});
+});
+function setFilter(f){
+  curFilter=f;
+  document.querySelectorAll('.fb').forEach(function(b){b.classList.toggle('active',b.dataset.f===f);});
+  renderTable();
+}
+
+/* ── Tabs ── */
+document.querySelectorAll('.tab').forEach(function(t){
+  t.addEventListener('click',function(){
+    t.parentElement.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});
+    t.classList.add('active');
+    document.querySelectorAll('.tc').forEach(function(c){c.classList.remove('active');});
+    ge('tab-'+t.dataset.tab).classList.add('active');
+  });
+});
+
+/* ── Single Check ── */
+ge('sc-file').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(e){ge('sc-input').value=e.target.result;};r.readAsText(f);});
+var sca=ge('sc-input');
+sca.addEventListener('dragover',function(e){e.preventDefault();});
+sca.addEventListener('drop',function(e){e.preventDefault();var f=e.dataTransfer.files[0];if(f){var r=new FileReader();r.onload=function(ev){sca.value=ev.target.result;};r.readAsText(f);}});
+ge('sc-btn').addEventListener('click',doSingle);
+
+function doSingle(){
+  var cookie=ge('sc-input').value.trim();
+  if(!cookie){toast('Paste a cookie first','err');return;}
+  var btn=ge('sc-btn'),spin=ge('sc-spin'),txt=ge('sc-btntxt');
+  btn.disabled=true;spin.style.display='inline-block';txt.textContent='Checking…';
+  fetch('/api/check-single',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({cookie:cookie,proxies:ge('prx-input').value.trim(),preflight:ge('sc-preflight').checked})})
+  .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+  .then(showSingle)
+  .catch(function(e){toast('Request failed: '+e.message,'err');})
+  .finally(function(){btn.disabled=false;spin.style.display='none';txt.textContent='Check Cookie';});
+}
+function showSingle(d){
+  var card=ge('sc-result-card'),div=ge('sc-result');card.style.display='block';
+  var st=d.status||'error';
+  var bcls={valid:'r-valid',invalid:'r-invalid',cloudflare_blocked:'r-cf',error:'r-error'}[st]||'r-error';
+  var icon={valid:'✅',invalid:'❌',cloudflare_blocked:'🛡',error:'⚠'}[st]||'⚠';
+  var label={valid:'VALID',invalid:'INVALID',cloudflare_blocked:'CF BLOCKED',error:'ERROR'}[st]||'ERROR';
+  var h='<div class="rbanner '+bcls+'">'+icon+' '+label+(d.tier_display?' — '+esc(d.tier_display):'')+(d.active_sub?' · ACTIVE':'')+'</div>';
+  if(d.message)h+='<div class="prog-txt" style="margin-bottom:12px">'+esc(d.message)+'</div>';
+  var F=[['Email',d.email],['Name',d.name],['User ID',d.user_id],['Tier',d.tier_display],
+    ['Active Sub',d.active_sub?'Yes':(st==='valid'?'No':null)],['Sub Status',d.subscription_status],
+    ['Billing Intv',d.billing_interval],['Period End',d.billing_period_end],
+    ['Product ID',d.product_id],['Base Plan ID',d.base_plan_id],['Reason',d.reason]];
+  h+='<div>';F.forEach(function(f){var v=f[1];if(!v||v==='-')return;h+='<div class="rrow"><span class="rk">'+esc(f[0])+'</span><span class="rv">'+esc(String(v))+'</span></div>';});h+='</div>';
+  if(d.cookie)h+='<div class="sbtns"><button class="btn btn-g" id="s-ck">🍪 Copy Cookie</button></div>';
+  div.innerHTML=h;
+  var b=ge('s-ck');if(b)b.addEventListener('click',function(){clipCopy(d.cookie,'Cookie copied!');});
+  allResults.push({idx:allResults.length+1,source_file:'single',status:st,tier_display:d.tier_display||'-',
+    email:d.email||'-',user_id:d.user_id||'-',reason:d.reason||'-',cookie:d.cookie||''});
+  renderTable();
+}
+
+/* ── Batch ── */
+ge('inp-zip').addEventListener('change',function(){handleZip(this);});
+ge('inp-multi').addEventListener('change',function(){handleMulti(this);});
+ge('batch-btn').addEventListener('click',startBatch);
+ge('stop-btn').addEventListener('click',stopBatch);
+function handleZip(i){zipFile=i.files[0];multiFiles=[];ge('fl-zip').innerHTML=zipFile?'<div class="fchip">📦 '+esc(zipFile.name)+'</div>':'';}
+function handleMulti(i){multiFiles=Array.from(i.files);zipFile=null;ge('fl-multi').innerHTML=multiFiles.map(function(f){return '<div class="fchip">📄 '+esc(f.name)+'</div>';}).join('');}
+
+function startBatch(){
+  var paste=ge('b-paste').value.trim();
+  if(!zipFile&&!multiFiles.length&&!paste){toast('Provide cookie files or paste','err');return;}
+  var fd=new FormData();
+  fd.append('sid',SID);fd.append('threads',ge('b-threads').value);
+  fd.append('preflight',ge('b-preflight').checked?'true':'false');
+  fd.append('proxies',ge('prx-input').value);
+  if(paste)fd.append('paste_text',paste);
+  if(zipFile)fd.append('cookies',zipFile);else multiFiles.forEach(function(f){fd.append('cookies',f);});
+  resetUI();batchStopped=false;
+  ge('batch-btn').disabled=true;ge('batch-btn').textContent='Uploading…';ge('stop-btn').style.display='block';
+  setProg(0,'Uploading…');
+  var xhr=new XMLHttpRequest();xhr.open('POST','/api/batch');
+  xhr.upload.addEventListener('progress',function(e){if(e.lengthComputable){var p=Math.round(e.loaded/e.total*100);setProg(p,'Uploading: '+p+'% ('+fmtSize(e.loaded)+'/'+fmtSize(e.total)+')');if(p===100){setProg(100,'Upload done — processing…');ge('batch-btn').textContent='Processing…';}}});
+  xhr.onload=function(){if(xhr.status>=200&&xhr.status<300){try{var d=JSON.parse(xhr.responseText);if(d.error){toast(d.error,'err');resetBtn();}else toast('Started — '+d.total+' cookies','ok');}catch(e){toast('Parse error','err');resetBtn();}}else{toast('Upload failed: HTTP '+xhr.status,'err');resetBtn();}};
+  xhr.onerror=function(){toast('Upload failed','err');resetBtn();};
+  xhr.timeout=300000;xhr.ontimeout=function(){toast('Upload timed out','err');resetBtn();};
+  xhr.send(fd);
+}
+function stopBatch(){if(socket)socket.emit('stop_batch',{sid:SID});batchStopped=true;resetBtn();toast('Batch stopped','');}
+function resetUI(){['s-chk','s-val','s-inv','s-cf','s-err','s-dup'].forEach(function(id){ge(id).textContent='0';});setProg(0,'Starting…');allResults=[];renderTable();}
+function resetBtn(){ge('batch-btn').disabled=false;ge('batch-btn').textContent='▶ Start Batch';ge('stop-btn').style.display='none';}
+function onCounts(d){
+  var checked=(d.valid||0)+(d.invalid||0)+(d.cloudflare_blocked||0)+(d.error||0)+(d.duplicate||0);
+  ge('s-chk').textContent=checked;ge('s-val').textContent=d.valid||0;ge('s-inv').textContent=d.invalid||0;
+  ge('s-cf').textContent=d.cloudflare_blocked||0;ge('s-err').textContent=d.error||0;ge('s-dup').textContent=d.duplicate||0;
+  if(d.total){var p=Math.round(d.processed/d.total*100);setProg(p,'Processing: '+d.processed+'/'+d.total+' ('+p+'%)');}
+}
+function onBatchDone(d){onCounts(d);resetBtn();setProg(100,'Done — '+(d.valid||0)+' valid, '+(d.duplicate||0)+' duplicate');showTiers(d.tiers||{});toast('Batch done! '+(d.valid||0)+' valid found.','ok');}
+function showTiers(t){var h=Object.keys(t).filter(function(k){return t[k]>0;}).map(function(k){return '<div class="tprow"><span class="tpname">'+esc(k)+'</span><span class="tpcnt">'+t[k]+'</span></div>';}).join('');ge('tier-grid').innerHTML=h||'<div class="prog-txt">No tier data</div>';ge('tier-card').style.display='block';}
+
+/* ── Results table ── */
+ge('clr-btn').addEventListener('click',function(){allResults=[];renderTable();});
+ge('exp-btn').addEventListener('click',exportZip);
+ge('search-input').addEventListener('input',function(){searchQ=this.value.toLowerCase();renderTable();});
+document.querySelectorAll('.fb').forEach(function(b){b.addEventListener('click',function(){setFilter(b.dataset.f);});});
+
+function renderTable(){
+  var tb=ge('res-body'),rows=allResults.slice();
+  if(curFilter!=='all')rows=rows.filter(function(r){return r.status===curFilter;});
+  if(searchQ)rows=rows.filter(function(r){return (r.email||'').toLowerCase().indexOf(searchQ)>-1||(r.tier_display||'').toLowerCase().indexOf(searchQ)>-1||(r.source_file||'').toLowerCase().indexOf(searchQ)>-1||(r.user_id||'').toLowerCase().indexOf(searchQ)>-1;});
+  if(!rows.length){tb.innerHTML='<tr><td colspan="8"><div class="empty"><div class="eic">📭</div><div class="etx">No results'+(curFilter!=='all'?' for: '+curFilter:'')+'</div></div></td></tr>';return;}
+  tb.innerHTML=rows.map(function(r,i){
+    var b=BADGE[r.status]||{cls:'be',lbl:'ERR'};
+    var acts=r.cookie?'<button class="ab" data-i="'+i+'">🍪 Cookie</button>':'—';
+    return '<tr><td style="color:var(--muted)">'+esc(r.idx||i+1)+'</td>'
+      +'<td style="max-width:110px">'+esc(r.source_file||'')+'</td>'
+      +'<td><span class="badge '+b.cls+'">'+b.lbl+'</span></td>'
+      +'<td style="color:var(--accent)">'+esc(r.tier_display||'-')+'</td>'
+      +'<td>'+esc(r.email||'-')+'</td>'
+      +'<td style="color:var(--muted)">'+esc((r.user_id||'-').slice(0,20))+'</td>'
+      +'<td style="color:var(--muted)">'+esc((r.reason||'-').slice(0,28))+'</td>'
+      +'<td>'+acts+'</td></tr>';
+  }).join('');
+  tb.querySelectorAll('[data-i]').forEach(function(btn){btn.addEventListener('click',function(){var r=rows[+btn.dataset.i];if(r)clipCopy(r.cookie,'Cookie copied!');});});
+}
+
+function exportZip(){
+  var fields=FIELDS.filter(function(f){var t=ge('fld-'+f[0]);return !t||t.checked;}).map(function(f){return f[0];}).join(',');
+  var a=document.createElement('a');a.href='/api/export/'+SID+'?fields='+encodeURIComponent(fields);a.download='grok_results.zip';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);toast('Downloading ZIP…','ok');
+}
+
+/* ── Settings ── */
+ge('prx-input').addEventListener('input',prxCnt);
+ge('prx-clr').addEventListener('click',function(){ge('prx-input').value='';prxCnt();});
+ge('prx-file').addEventListener('change',function(){var f=this.files[0];if(!f)return;var r=new FileReader();r.onload=function(e){ge('prx-input').value=e.target.result;prxCnt();};r.readAsText(f);});
+ge('save-btn').addEventListener('click',function(){
+  ge('sc-preflight').checked=ge('cfg-preflight').checked;
+  ge('b-preflight').checked=ge('cfg-preflight').checked;
+  ge('b-threads').value=ge('cfg-threads').value;
+  toast('Settings applied','ok');
+});
+function prxCnt(){var n=ge('prx-input').value.split('\n').filter(function(l){return l.trim()&&!l.trim().startsWith('#');}).length;ge('prx-cnt').textContent=n?n+' proxy lines loaded':'';}
+
+/* Build export-field toggles */
+(function(){
+  ge('field-grid').innerHTML=FIELDS.map(function(f){
+    return '<div class="trow"><div class="tlbl">'+esc(f[1])+'</div>'
+      +'<label class="tgl"><input type="checkbox" id="fld-'+f[0]+'" checked><span class="track"><span class="thumb"></span></span></label></div>';
+  }).join('');
+})();
+
+/* ── Drop zones ── */
+function drop(id,h){var el=ge(id);if(!el)return;el.addEventListener('dragover',function(e){e.preventDefault();el.classList.add('over');});el.addEventListener('dragleave',function(){el.classList.remove('over');});el.addEventListener('drop',function(e){e.preventDefault();el.classList.remove('over');h(Array.from(e.dataTransfer.files));});}
+drop('dz-zip',function(fs){var z=fs.filter(function(f){return f.name.toLowerCase().endsWith('.zip');});if(z.length){zipFile=z[0];handleZip({files:z});}});
+drop('dz-multi',function(fs){var v=fs.filter(function(f){return f.name.toLowerCase().endsWith('.txt');});if(v.length){multiFiles=v;handleMulti({files:v});}});
+
+/* ── Cursor spotlight ── */
+(function(){
+  if(!window.matchMedia('(hover:hover) and (pointer:fine)').matches)return;
+  function attach(c){
+    c.addEventListener('mousemove',function(e){var r=c.getBoundingClientRect();c.style.setProperty('--mx',((e.clientX-r.left)/r.width*100).toFixed(1)+'%');c.style.setProperty('--my',((e.clientY-r.top)/r.height*100).toFixed(1)+'%');});
+    c.addEventListener('mouseleave',function(){c.style.setProperty('--mx','50%');c.style.setProperty('--my','0%');});
+  }
+  document.querySelectorAll('.card').forEach(attach);
+})();
+
+/* ── Init ── */
+ge('sid-lbl').textContent=SID;
+initSocket();
+})();
+</script>
+</body>
+</html>

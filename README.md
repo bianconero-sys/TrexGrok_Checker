@@ -1,85 +1,43 @@
-# Grok Cookie Validator — Web Edition
-**by Trex** · v2.0
+# Grok Cookie Validator — Web Edition (v3.0)
 
-A web dashboard for validating Grok.com (xAI) cookies — rebuilt from the CLI
-tool `Grok_byTrex.py` with a live GUI, batch processing, and one-click
-deploy to Render.com.
-
----
+A Flask + Socket.IO web dashboard that validates Grok.com / xAI cookies, classifies
+them by subscription tier, and exports results — rebuilt from the original CLI tool
+with a modern liquid-glass interface. By Trex.
 
 ## Features
+- **Dashboard** with 6 live stat cards (Checked, Valid, Invalid, CF Block, Errors,
+  Duplicate). **Every card is clickable** and jumps straight to the matching section
+  in Live Results.
+- **Email deduplication** — repeated valid emails are flagged as `duplicate`, counted
+  on their own card, and skipped on export.
+- **Single Check** and **Batch Process** (ZIP archive, multiple .txt, or pasted text),
+  with live progress over WebSocket.
+- **Settings → Export Fields**: per-field on/off toggles control exactly which details
+  appear in each exported `.txt` (Email, Tier, Billing Intv, Sub Status, Period End,
+  Product ID, Base Plan ID, Purchase Token, User ID, Name, Source File, Validation,
+  Reason). The Cookie block is always kept.
+- **Smart folder classification on export**: only cookies with an *active* paid sub
+  (detected from REST subscription history) go to their tier folder. Inactive,
+  cancelled, expired, or no-sub cookies are filtered into `/free/`.
+- **Modern liquid-glass UI** — animated wallpaper, glass cards, cursor spotlight,
+  clean line icons, and a working **dark / light theme toggle**.
+- Proxy support (http / socks4 / socks5), threaded checking (1–50), Cloudflare
+  challenge detection.
 
-| Feature | Description |
-|---|---|
-| **Single Check** | Paste one Netscape cookie, get instant result |
-| **Batch Processing** | Upload `.zip` or multiple `.txt` files, real-time WebSocket progress |
-| **Live Results** | Filterable table (Valid / Invalid / CF Block / Error) |
-| **Export ZIP** | Download valid cookies organized by tier folder |
-| **Proxy Support** | HTTP, SOCKS4, SOCKS5 — one per line, randomly rotated |
-| **Preflight Toggle** | Optional GET to `grok.com` before session check |
-| **Responsive UI** | Works on desktop and mobile |
+## Files
+- `app.py` — Flask backend + all validation logic
+- `dashboard.html` — the UI (loaded by `app.py` at startup)
+- `requirements.txt`, `render.yaml`, `runtime.txt`, `python-version`
 
----
-
-## Cookie Format
-
-Expects **Netscape tab-delimited** format:
-
-```
-.grok.com   TRUE    /   TRUE    0   sso         <value>
-.grok.com   TRUE    /   TRUE    0   sso-rw      <value>
-.grok.com   TRUE    /   TRUE    0   cf_clearance <value>
-```
-
-- Only cookies for `grok.com` and `x.ai` domains are used
-- Expired cookies (by unix timestamp) are automatically filtered
-
----
-
-## Local Development
-
+## Run locally
 ```bash
 pip install -r requirements.txt
-python app.py
-# → http://localhost:5000
+python app.py            # http://localhost:5000
 ```
 
-## Deploy to Render.com
+## Deploy on Render.com
+1. Push this folder to a Git repo (keep `app.py` and `dashboard.html` together).
+2. On Render: **New → Blueprint**, point it at the repo (`render.yaml` is included).
+3. Deploy. `SECRET_KEY` is generated automatically.
 
-1. Push this folder to a GitHub repo
-2. Create a new **Web Service** on [render.com](https://render.com)
-3. Connect your repo — Render will auto-detect `render.yaml`
-4. Click **Deploy**
-
-The `render.yaml` handles everything: build command, start command, PORT,
-and auto-generated `SECRET_KEY`.
-
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Dashboard UI |
-| `POST` | `/api/check-single` | JSON: `{cookie, proxies, preflight}` |
-| `POST` | `/api/batch` | FormData: files + options, streams via WebSocket |
-| `GET` | `/api/results/<sid>` | All results for a session |
-| `GET` | `/api/export/<sid>` | Download valid results as ZIP |
-
----
-
-## Export Structure
-
-```
-grok_results.zip
-├── free/
-│   └── user@example.com+free_0001.txt
-└── <tier_name>/
-    └── user@example.com+<tier>_0001.txt
-```
-
-Each `.txt` contains full account info + raw cookie text.
-
----
-
-*For educational purposes only.*
+> For educational purposes only.
