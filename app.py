@@ -3,6 +3,18 @@
 #  Core validation logic from Grok_byTrex.py | Web layer by Trex
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Run cooperative (green-thread) networking so Socket.IO real-time events and
+# normal HTTP requests (like the ZIP export) never starve each other. This MUST
+# happen before requests / urllib3 / ssl are imported. We fall back gracefully
+# to plain threading if eventlet isn't available (e.g. minimal local runs).
+_ASYNC_MODE = "threading"
+try:
+    import eventlet  # noqa: E402
+    eventlet.monkey_patch()
+    _ASYNC_MODE = "eventlet"
+except Exception:
+    pass
+
 from flask import Flask, render_template_string, request, jsonify, Response, send_file
 from flask_socketio import SocketIO, join_room, leave_room
 import threading
@@ -25,7 +37,7 @@ from urllib3.util.retry import Retry
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "grok-validator-secret-2025")
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode=_ASYNC_MODE)
 
 results_store: Dict[str, List[dict]] = {}
 batch_state:   Dict[str, dict]       = {}
@@ -36,7 +48,7 @@ VERSION          = "3.0-web"
 SESSION_URL      = "https://grok.com/api/auth/session"
 SUBSCRIPTIONS_URL = "https://grok.com/rest/subscriptions"
 HOME_URL         = "https://grok.com/"
-TIMEOUT          = 25
+TIMEOUT          = (8, 15)   # (connect, read) seconds — bounds slow stragglers
 
 BROWSER_HEADERS = {
     "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0",
@@ -681,11 +693,9 @@ def start_batch():
 
     results_store[sid] = []
     batch_state[sid]   = {"running": True}
-    threading.Thread(
-        target=process_batch,
-        args=(sid, cookie_sets, proxies, num_threads, do_preflight),
-        daemon=True,
-    ).start()
+    socketio.start_background_task(
+        process_batch, sid, cookie_sets, proxies, num_threads, do_preflight
+    )
     return jsonify({"started": True, "total": len(cookie_sets)})
 
 
@@ -735,16 +745,12 @@ def export_zip(sid):
 
     buf.seek(0)
     data = buf.getvalue()
-    resp = send_file(
-        io.BytesIO(data),
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name="grok_results.zip",
-    )
-    # Explicit length avoids chunked transfer encoding, which makes some
-    # mobile browsers (iOS Safari) hang on "Downloading…" forever.
-    resp.headers["Content-Length"] = str(len(data))
-    resp.headers["Cache-Control"]  = "no-store"
+    resp = Response(data, mimetype="application/zip")
+    resp.headers["Content-Disposition"] = 'attachment; filename="grok_results.zip"'
+    resp.headers["Content-Length"]       = str(len(data))
+    resp.headers["Accept-Ranges"]        = "none"     # no partial/range requests
+    resp.headers["Cache-Control"]         = "no-store"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 
 
