@@ -3,8 +3,8 @@
 #  Core validation logic from Grok_byTrex.py | Web layer by Trex
 # ─────────────────────────────────────────────────────────────────────────────
 
-from flask import Flask, render_template_string, request, jsonify, Response, send_file
-from flask_socketio import SocketIO, join_room, leave_room
+from flask import Flask, render_template_string, request, jsonify
+from flask_socketio import SocketIO
 import threading
 import datetime
 import io
@@ -30,8 +30,10 @@ app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
 # thread pool (see render.yaml) so live polling never starves the ZIP download.
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-results_store: Dict[str, List[dict]] = {}
-batch_state:   Dict[str, dict]       = {}
+# Single global batch state (one batch at a time per instance). No session ids:
+# live updates are broadcast to all connected clients, and the ZIP export is
+# built entirely in the browser, so the server keeps no per-session results.
+BATCH: Dict[str, Any] = {"running": False}
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -542,7 +544,6 @@ def parse_proxies(text: str) -> List[str]:
 # ─── Batch Worker (with email deduplication) ──────────────────────────────────
 
 def process_batch(
-    sid:         str,
     cookie_sets: List[Tuple[str, Dict[str, str], str]],
     proxies:     List[str],
     num_threads: int,
@@ -561,18 +562,16 @@ def process_batch(
     def worker():
         while True:
             with ql:
-                if not queue:
-                    return
-                if not batch_state.get(sid, {}).get("running", True):
+                if not queue or not BATCH["running"]:
                     return
                 src, cks, ctxt = queue.pop(0)
-            if not batch_state.get(sid, {}).get("running", True):
+            if not BATCH["running"]:
                 return
 
             proxy  = random.choice(proxies) if proxies else None
             result = validate_one(src, cks, ctxt, proxy, do_preflight)
 
-            if not batch_state.get(sid, {}).get("running", True):
+            if not BATCH["running"]:
                 return
 
             with lock:
@@ -600,23 +599,23 @@ def process_batch(
                 else:
                     counts[result.status] = counts.get(result.status, 0) + 1
 
-                results_store.setdefault(sid, []).append(row)
-                socketio.emit("result_row", row, room=sid)
+                # Broadcast to every connected client (no per-session routing).
+                socketio.emit("result_row", row)
                 socketio.emit("counts", {
                     **counts, "tiers": tiers,
                     "total": total, "processed": proc[0],
-                }, room=sid)
+                })
 
     threads = [threading.Thread(target=worker, daemon=True)
                for _ in range(min(num_threads, total, 50))]
     for t in threads: t.start()
     for t in threads: t.join()
 
-    batch_state[sid] = {"running": False}
+    BATCH["running"] = False
     socketio.emit("batch_done", {
         **counts, "tiers": tiers,
         "total": total, "processed": proc[0],
-    }, room=sid)
+    })
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -648,11 +647,8 @@ def check_single():
 
 @app.route("/api/batch", methods=["POST"])
 def start_batch():
-    sid = request.form.get("sid", "")
-    if not sid:
-        return jsonify({"error": "No session id"})
-    if batch_state.get(sid, {}).get("running"):
-        return jsonify({"error": "Batch already running"})
+    if BATCH["running"]:
+        return jsonify({"error": "A batch is already running"})
 
     num_threads  = min(max(int(request.form.get("threads", 10)), 1), 50)
     do_preflight = request.form.get("preflight", "true").lower() not in ("false", "0", "no")
@@ -682,84 +678,16 @@ def start_batch():
     if not cookie_sets:
         return jsonify({"error": "No valid Grok cookie sets found"})
 
-    results_store[sid] = []
-    batch_state[sid]   = {"running": True}
+    BATCH["running"] = True
     socketio.start_background_task(
-        process_batch, sid, cookie_sets, proxies, num_threads, do_preflight
+        process_batch, cookie_sets, proxies, num_threads, do_preflight
     )
     return jsonify({"started": True, "total": len(cookie_sets)})
 
 
-@app.route("/api/results/<sid>")
-def get_results(sid):
-    return jsonify(results_store.get(sid, []))
-
-
-@app.route("/api/export/<sid>")
-def export_zip(sid):
-    results = results_store.get(sid, [])
-    if not results:
-        return Response("No results.", mimetype="text/plain")
-
-    # Which fields to include (from settings toggles). Absent => all enabled.
-    fields_param = request.args.get("fields")
-    if fields_param is None:
-        enabled = {k for k, _ in EXPORT_FIELD_LABELS}
-    else:
-        enabled = {f.strip() for f in fields_param.split(",") if f.strip()}
-
-    buf      = io.BytesIO()
-    counters: Dict[str, int] = {}
-
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for r in results:
-            # Only export real valid hits (duplicates are skipped automatically)
-            if r.get("status") != "valid":
-                continue
-
-            folder = export_folder(r)            # active subs -> tier, else free
-            counters[folder] = counters.get(folder, 0) + 1
-            n = counters[folder]
-
-            email_safe = re.sub(r"[^a-zA-Z0-9._-]+", "_",
-                                r.get("email") or r.get("user_id") or "unknown").strip("._-") or "unknown"
-            folder_safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", folder).strip("._-") or "free"
-
-            lines = []
-            for key, label in EXPORT_FIELD_LABELS:
-                if key not in enabled:
-                    continue
-                lines.append(f"{label.ljust(15)}: {r.get(key, '')}")
-            lines += ["", "--------------------", "Cookie:", r.get("cookie", "")]
-
-            zf.writestr(f"{folder}/{email_safe}+{folder_safe}_{n:04d}.txt", "\n".join(lines))
-
-    buf.seek(0)
-    data = buf.getvalue()
-    resp = Response(data, mimetype="application/zip")
-    resp.headers["Content-Disposition"] = 'attachment; filename="grok_results.zip"'
-    resp.headers["Content-Length"]       = str(len(data))
-    resp.headers["Accept-Ranges"]        = "none"     # no partial/range requests
-    resp.headers["Cache-Control"]         = "no-store"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
-
-
-@socketio.on("join")
-def on_join(data):
-    sid = data.get("sid", "")
-    if sid: join_room(sid)
-
-@socketio.on("leave")
-def on_leave(data):
-    sid = data.get("sid", "")
-    if sid: leave_room(sid)
-
 @socketio.on("stop_batch")
-def on_stop(data):
-    sid = data.get("sid", "")
-    if sid and sid in batch_state:
-        batch_state[sid]["running"] = False
+def on_stop(_data=None):
+    BATCH["running"] = False
 
 # ─── Dashboard HTML ───────────────────────────────────────────────────────────
 # (embedded in DASHBOARD.html via the companion file build step)

@@ -395,7 +395,7 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
     <div class="conn"><span class="dot"></span>Connected</div>
     <div class="meta">
       <div>For educational purposes only.</div>
-      <div>Session <b id="sid-lbl">–</b></div>
+      <div>Status <b id="conn-lbl">–</b></div>
     </div>
     <div class="theme-sw">
       <span>Theme</span>
@@ -616,7 +616,8 @@ tbody td{padding:10px 13px;font-family:'DM Mono',monospace;color:var(--text2);
 'use strict';
 
 /* ── State ── */
-var SID='g'+Math.random().toString(36).slice(2,10);
+/* No session id anywhere: live updates are broadcast over the socket, and the
+   ZIP export is built entirely in the browser. */
 var socket=null, allResults=[], curFilter='all', searchQ='', batchStopped=false;
 var zipFile=null, multiFiles=[], renderTimer=null, _page='batch';
 
@@ -660,8 +661,8 @@ ge('theme-toggle').addEventListener('change',function(){applyTheme(this.checked)
 /* ── Socket ── */
 function initSocket(){
   socket=io({transports:['websocket','polling']});
-  socket.on('connect',function(){socket.emit('join',{sid:SID});setDot(true);});
-  socket.on('disconnect',function(){setDot(false);});
+  socket.on('connect',function(){setDot(true);var l=ge('conn-lbl');if(l)l.textContent='live';});
+  socket.on('disconnect',function(){setDot(false);var l=ge('conn-lbl');if(l)l.textContent='–';});
   socket.on('result_row',function(r){if(batchStopped)return;allResults.push(r);scheduleRender();});
   socket.on('counts',function(d){if(batchStopped)return;onCounts(d);});
   socket.on('batch_done',function(d){if(batchStopped)return;onBatchDone(d);});
@@ -762,8 +763,9 @@ function handleMulti(i){multiFiles=Array.from(i.files);zipFile=null;ge('fl-multi
 function startBatch(){
   var paste=ge('b-paste').value.trim();
   if(!zipFile&&!multiFiles.length&&!paste){toast('Provide cookie files or paste','err');return;}
+  if(!socket||!socket.connected){toast('Connecting to server… try again in a moment','err');if(socket)socket.connect();return;}
   var fd=new FormData();
-  fd.append('sid',SID);fd.append('threads',ge('b-threads').value);
+  fd.append('threads',ge('b-threads').value);
   fd.append('preflight',ge('b-preflight').checked?'true':'false');
   fd.append('proxies',ge('prx-input').value);
   if(paste)fd.append('paste_text',paste);
@@ -778,7 +780,7 @@ function startBatch(){
   xhr.timeout=300000;xhr.ontimeout=function(){toast('Upload timed out','err');resetBtn();};
   xhr.send(fd);
 }
-function stopBatch(){if(socket)socket.emit('stop_batch',{sid:SID});batchStopped=true;resetBtn();toast('Batch stopped','');}
+function stopBatch(){if(socket)socket.emit('stop_batch');batchStopped=true;resetBtn();toast('Batch stopped','');}
 function resetUI(){['s-chk','s-val','s-inv','s-cf','s-free','s-dup'].forEach(function(id){var e=ge(id);if(e)e.textContent='0';});setProg(0,'Starting…');allResults=[];renderTable();}
 function resetBtn(){ge('batch-btn').disabled=false;ge('batch-btn').innerHTML='<svg class="ico" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Start Batch';ge('stop-btn').style.display='none';}
 function onCounts(d){
@@ -867,29 +869,45 @@ function buildExportText(r,enabledKeys){
 }
 
 /* Build the results ZIP entirely in the browser from data we already hold.
-   No server round-trip → no SID/memory/streaming issues, and the download is a
+   No server round-trip → no session/memory/streaming issues, and the download is a
    local blob, which is the most reliable path on mobile browsers. */
 function exportZip(){
+  var btn=ge('exp-btn');
   var enabled=FIELDS.filter(function(f){var t=ge('fld-'+f[0]);return !t||t.checked;}).map(function(f){return f[0];});
   var hits=allResults.filter(function(r){return r.status==='valid';}); // duplicates/invalid excluded
   if(!hits.length){toast('No valid results to export yet','err');return;}
-  if(typeof JSZip==='undefined'){ // fallback to server endpoint if CDN blocked
-    var a=document.createElement('a');a.href='/api/export/'+SID+'?fields='+encodeURIComponent(enabled.join(','));
-    a.download='grok_results.zip';document.body.appendChild(a);a.click();document.body.removeChild(a);
-    toast('Preparing download…','ok');return;
+  if(typeof JSZip==='undefined'){ // CDN blocked — can't build locally
+    toast('Export library blocked by network. Check connection and retry.','err');return;
   }
+  if(btn.dataset.busy==='1')return;            // guard against double taps
+  btn.dataset.busy='1';btn.disabled=true;
+  var origHTML=btn.innerHTML;
+  btn.textContent='Building… 0%';
   toast('Building ZIP… ('+hits.length+' hit'+(hits.length===1?'':'s')+')','ok');
-  var zip=new JSZip(),counters={};
-  hits.forEach(function(r){
-    var folder=exportFolder(r);
-    counters[folder]=(counters[folder]||0)+1;
-    var n=counters[folder], em=safeName(r.email||r.user_id||'unknown'), fs=safeName(folder);
-    var name=folder+'/'+em+'+'+fs+'_'+String(n).padStart(4,'0')+'.txt';
-    zip.file(name, buildExportText(r,enabled));
-  });
-  zip.generateAsync({type:'blob',compression:'DEFLATE'}).then(function(blob){
-    triggerDownload(blob,'grok_results.zip');
-  }).catch(function(e){toast('ZIP build failed: '+e.message,'err');});
+  // Build on the next frame so the button state paints first (large sets).
+  setTimeout(function(){
+    try{
+      var zip=new JSZip(),counters={};
+      hits.forEach(function(r){
+        var folder=exportFolder(r);
+        counters[folder]=(counters[folder]||0)+1;
+        var n=counters[folder], em=safeName(r.email||r.user_id||'unknown'), fs=safeName(folder);
+        zip.file(folder+'/'+em+'+'+fs+'_'+String(n).padStart(4,'0')+'.txt', buildExportText(r,enabled));
+      });
+      zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:5},streamFiles:true},
+        function(meta){ btn.textContent='Building… '+Math.round(meta.percent)+'%'; })
+      .then(function(blob){
+        btn.disabled=false;btn.dataset.busy='0';btn.innerHTML=origHTML;
+        triggerDownload(blob,'grok_results.zip');
+      }).catch(function(e){
+        btn.disabled=false;btn.dataset.busy='0';btn.innerHTML=origHTML;
+        toast('ZIP build failed: '+e.message,'err');
+      });
+    }catch(e){
+      btn.disabled=false;btn.dataset.busy='0';btn.innerHTML=origHTML;
+      toast('ZIP build failed: '+e.message,'err');
+    }
+  },30);
 }
 
 /* Reliable cross-platform download. Tries the native iOS share sheet first when
@@ -951,7 +969,7 @@ drop('dz-multi',function(fs){var v=fs.filter(function(f){return f.name.toLowerCa
 })();
 
 /* ── Init ── */
-ge('sid-lbl').textContent=SID;
+ge('conn-lbl').textContent='…';
 initSocket();
 })();
 </script>
